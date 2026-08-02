@@ -134,7 +134,7 @@
   <div class="sheet">
     <h2 id="over-title">💥 Crash!</h2>
     <div id="over-score">0</div>
-    <p class="sub" style="margin-top:0">Both trains reset when either one crashes.</p>
+    <p class="sub" id="over-sub" style="margin-top:0"></p>
     <button id="restart">↻ Restart</button>
   </div>
 </div>
@@ -359,6 +359,9 @@ function showGameOver(){
   document.getElementById('over-score').innerHTML = mode===2
     ? `<span class="s1">P1 ${p1.score}</span> &nbsp; <span class="s2">P2 ${p2.score}</span>`
     : `Score: ${p1.score}`;
+  document.getElementById('over-sub').textContent = mode===2
+    ? 'Both trains reset when either one crashes.'
+    : 'Tap Restart to try again.';
   over.classList.add('open');
 }
 document.getElementById('restart').onclick=()=>{

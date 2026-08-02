@@ -4,6 +4,10 @@ Snake, but with **trains**. One or two players share a board and grow their trai
 by grabbing cargo (one car per pickup). Hit a wall, yourself, or the other train
 and it's **Game Over** — a screen shows the score and you tap **Restart**.
 
+<p align="center">
+  <img src="docs/demo.gif" alt="Train Snake gameplay: a red train and a green train chasing gold cargo on a grid" width="460">
+</p>
+
 It's a single self-contained HTML file (canvas + vanilla JS, zero dependencies),
 and it installs as a home-screen app (PWA) that works offline.
 
