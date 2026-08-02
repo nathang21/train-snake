@@ -83,7 +83,10 @@
   .grp.wrap .sw{flex:1 1 calc(25% - 4px); height:40px; min-height:40px; padding:0; border:3px solid transparent;}
   .grp.wrap .sw.on{border-color:#fff;}
   #over .sheet{text-align:center;}
-  #over-score{font-size:26px; font-weight:900; margin:6px 0 4px;}
+  #over-score{font-size:26px; font-weight:900; margin:6px 0 2px;}
+  #over-best{font-size:15px; font-weight:700; opacity:.85; margin:0 0 6px;}
+  #resethi{margin-top:10px; width:100%; background:transparent; border:1px solid rgba(255,255,255,.2);
+    color:#fff; opacity:.7; font-size:13px; font-weight:700; padding:9px; border-radius:9px; cursor:pointer;}
   body.one .s2, body.one #pad2, body.one .p2only{display:none;}
 </style>
 </head>
@@ -127,6 +130,7 @@
     <div class="row col p2only"><span>P2 train colour 🚂</span><div class="grp wrap" id="p2colors"></div></div>
     <div class="row"><button id="music">🎵 Music: Off</button></div>
     <button id="close">▶ Play</button>
+    <button id="resethi" class="mini">Reset best scores</button>
   </div>
 </div>
 
@@ -134,6 +138,7 @@
   <div class="sheet">
     <h2 id="over-title">💥 Crash!</h2>
     <div id="over-score">0</div>
+    <div id="over-best"></div>
     <p class="sub" id="over-sub" style="margin-top:0"></p>
     <button id="restart">↻ Restart</button>
   </div>
@@ -354,18 +359,36 @@ function loop(now){
 }
 // ---- Game over: freeze, show the score, wait for Restart ----
 const over=document.getElementById('over');
+// ---- Persistent best scores (per player, this browser only) ----
+function loadHi(){ try{ const o=JSON.parse(localStorage.getItem('trainsnake.hi')||'{}'); return {p1:o.p1|0, p2:o.p2|0}; }catch(e){ return {p1:0,p2:0}; } }
+function saveHi(){ try{ localStorage.setItem('trainsnake.hi', JSON.stringify(hi)); }catch(e){} }
+let hi = loadHi();
+
 function showGameOver(){
   dead=true;
+  // update bests for whoever's playing
+  let beat=false;
+  if(p1.score>hi.p1){ hi.p1=p1.score; beat=true; }
+  if(mode===2 && p2.score>hi.p2){ hi.p2=p2.score; beat=true; }
+  saveHi();
   document.getElementById('over-score').innerHTML = mode===2
     ? `<span class="s1">P1 ${p1.score}</span> &nbsp; <span class="s2">P2 ${p2.score}</span>`
     : `Score: ${p1.score}`;
-  document.getElementById('over-sub').textContent = mode===2
-    ? 'Both trains reset when either one crashes.'
-    : 'Tap Restart to try again.';
+  document.getElementById('over-best').innerHTML = mode===2
+    ? `Best · <span class="s1">${hi.p1}</span> · <span class="s2">${hi.p2}</span>`
+    : `Best: ${hi.p1}`;
+  document.getElementById('over-sub').textContent = beat
+    ? '🏆 New best score!'
+    : (mode===2 ? 'Both trains reset when either one crashes.' : 'Tap Restart to try again.');
   over.classList.add('open');
 }
 document.getElementById('restart').onclick=()=>{
   over.classList.remove('open'); dead=false; reset(true); last=performance.now(); acc=0;
+};
+document.getElementById('resethi').onclick=(e)=>{
+  hi={p1:0,p2:0}; saveHi();
+  e.target.textContent='Best scores cleared ✓';
+  setTimeout(()=>{ e.target.textContent='Reset best scores'; }, 1500);
 };
 // ---- Settings modal (players / speed / music) ----
 const modal=document.getElementById('modal');
