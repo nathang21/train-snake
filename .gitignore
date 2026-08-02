@@ -1,0 +1,15 @@
+# Private / machine-specific (never commit)
+LOCAL-SETUP.md
+*.local.*
+server.log
+*.log
+
+# OS + editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Tooling
+node_modules/
+.playwright-mcp/
