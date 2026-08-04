@@ -39,15 +39,7 @@
   .bar-title{font-size:clamp(13px,2.8vw,18px); font-weight:900; letter-spacing:1px; white-space:nowrap;
     background:linear-gradient(90deg,var(--p1),var(--gold),var(--p2)); -webkit-background-clip:text; background-clip:text; color:transparent;}
   /* stage centres the board in the space left after the bar + reserved pad zones */
-  #stage{flex:1; width:100%; min-height:0; display:flex; align-items:center; justify-content:center; position:relative;}
-  /* pre-round railroad-crossing countdown */
-  #count{position:absolute; inset:0; display:none; align-items:center; justify-content:center; pointer-events:none; z-index:4;}
-  #count::before{content:''; position:absolute; left:2%; right:2%; top:40%; height:20%; border-radius:6px;
-    background:repeating-linear-gradient(45deg,#e53935 0 18px,#fff 18px 36px); opacity:.85; box-shadow:0 6px 20px rgba(0,0,0,.5);}
-  #count .n{position:relative; font-size:clamp(64px,20vw,150px); font-weight:900; color:#fff;
-    text-shadow:0 4px 14px #000, 0 0 8px #000;}
-  #count .n.pulse{animation:countpulse .45s ease-out;}
-  @keyframes countpulse{0%{transform:scale(.4);opacity:0}40%{transform:scale(1.18);opacity:1}100%{transform:scale(1);opacity:1}}
+  #stage{flex:1; width:100%; min-height:0; display:flex; align-items:center; justify-content:center;}
   #board{border-radius:16px; box-shadow:0 12px 40px rgba(0,0,0,.6), inset 0 0 0 4px rgba(255,255,255,.08);
     background:#0f1d2b; touch-action:none;}
   /* touch pads */
@@ -112,7 +104,7 @@
     <div id="scores"><span class="s1">P1 <span id="sc1">0</span></span><span class="s2">P2 <span id="sc2">0</span></span></div>
     <span class="bar-title">🚂 Train Snake</span>
   </div>
-  <div id="stage"><canvas id="board"></canvas><div id="count"><div class="n"></div></div></div>
+  <div id="stage"><canvas id="board"></canvas></div>
 </div>
 
 <div class="pad" id="pad1">
@@ -208,6 +200,7 @@ let mode=1;          // number of players (1 or 2) — starts single-player
 let tick=180;        // ms per move; lower = faster
 let cargoCount=1;    // how many cargo pickups on the board at once (1–5)
 let heldDir={'1':null,'2':null};   // direction key held per player, for boost
+let heldSince={'1':0,'2':0};       // when the current held direction began (for the boost hold-delay)
 function actives(){ return mode===2 ? [p1,p2] : [p1]; }
 function trainInterval(t){ return t.boost ? Math.max(60, tick*0.42) : tick; }  // boost ≈ 2.4× faster while held
 
@@ -219,7 +212,7 @@ function reset(full){
   setColor('1',colorIdx['1']); setColor('2',colorIdx['2']);   // re-apply chosen colours (incl. rainbow)
   cargos=[]; refillCargo();
   for(const t of [p1,p2]){ t.prev=t.body.map(s=>({...s})); t.acc=0; t.int=tick; t.boost=false; t.wasBoost=false; }
-  heldDir={'1':null,'2':null};
+  heldDir={'1':null,'2':null}; heldSince={'1':0,'2':0};
 }
 function getVar(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
 function snapshot(){return {p1:p1.body.map(s=>({...s})), p2:p2.body.map(s=>({...s}))};}
@@ -241,7 +234,9 @@ const KEYMAP={arrowup:['1','up'],arrowdown:['1','down'],arrowleft:['1','left'],a
              w:['2','up'],s:['2','down'],a:['2','left'],d:['2','right']};
 addEventListener('keydown',e=>{
   const m=KEYMAP[e.key.toLowerCase()];
-  if(m){ e.preventDefault(); const[p,dir]=m; heldDir[p]=dir; setDir(p==='1'?p1:p2,dir); }
+  if(m){ e.preventDefault(); const[p,dir]=m;
+    if(heldDir[p]!==dir){ heldDir[p]=dir; heldSince[p]=performance.now(); }   // new hold begins
+    setDir(p==='1'?p1:p2,dir); }
 });
 addEventListener('keyup',e=>{
   const m=KEYMAP[e.key.toLowerCase()];
@@ -249,7 +244,7 @@ addEventListener('keyup',e=>{
 });
 document.querySelectorAll('.pad button').forEach(b=>{
   const p=b.dataset.p, dir=b.dataset.d;
-  const go=e=>{e.preventDefault(); haptic(14); heldDir[p]=dir; setDir(p==='1'?p1:p2,dir);};
+  const go=e=>{e.preventDefault(); haptic(14); if(heldDir[p]!==dir){ heldDir[p]=dir; heldSince[p]=performance.now(); } setDir(p==='1'?p1:p2,dir);};
   const rel=()=>{ if(heldDir[p]===dir) heldDir[p]=null; };   // hold to boost, release to stop
   b.addEventListener('touchstart',go,{passive:false}); b.addEventListener('mousedown',go);
   b.addEventListener('touchend',rel); b.addEventListener('touchcancel',rel);
@@ -396,6 +391,7 @@ function render(){
   }
   drawTrain(p1, p1.prev||p1.body, Math.min(1, p1.acc/(p1.int||tick)));
   if(mode===2) drawTrain(p2, p2.prev||p2.body, Math.min(1, p2.acc/(p2.int||tick)));
+  drawCountdown(now);
 }
 
 let paused=false, dead=false;
@@ -403,8 +399,9 @@ let counting=false;
 function updateBoost(){
   const live = !(paused||dead||counting);
   [['1',p1],['2',p2]].forEach(([pl,t])=>{ if(!t) return;
-    const b = live && heldDir[pl]!=null && heldDir[pl]===t.dir;
-    if(b && !t.wasBoost) whistle();      // cute toot-toot when a boost begins
+    // boost only after the key's been held a beat, so a quick tap-to-turn doesn't trigger it
+    const b = live && heldDir[pl]!=null && heldDir[pl]===t.dir && (performance.now()-heldSince[pl])>=140;
+    if(b && !t.wasBoost) whistle();      // bold toot-toot when a boost begins
     t.boost=b; t.wasBoost=b;
   });
 }
@@ -420,28 +417,51 @@ function loop(now){
   render();
   requestAnimationFrame(loop);
 }
-// ---- Pre-round countdown with railroad-crossing bells ----
-const countEl=document.getElementById('count'), countNum=countEl.querySelector('.n');
+// ---- Pre-round countdown: an animated crossing gate drawn on the board ----
+let countText='', countChangeT=0, gateProg=0, gateTarget=0, countTimer=null;
 function crossingDing(go){ if(!actx) return; const t=actx.currentTime;
   if(go){ bell(1046,t,0.5); bell(1046,t+0.13,0.5); }        // bright "go" chime
   else { bell(880,t,0.45); bell(660,t+0.14,0.45); }         // alternating crossing bell: ding-ding
 }
-let countTimer=null;
 function startCountdown(){
-  counting=true; clearTimeout(countTimer);
+  counting=true; clearTimeout(countTimer); gateTarget=1;    // lower the gate
   const steps=['3','2','1','GO!']; let idx=0;
-  countEl.style.display='flex';
   (function tick(){
     if(idx<steps.length){
       const go=steps[idx]==='GO!';
-      countNum.textContent=steps[idx];
-      countNum.classList.remove('pulse'); void countNum.offsetWidth; countNum.classList.add('pulse');
-      crossingDing(go); idx++;
-      countTimer=setTimeout(tick, go?550:750);
-    } else {
-      countEl.style.display='none'; counting=false; last=performance.now(); acc=0;
-    }
+      countText=steps[idx]; countChangeT=performance.now();
+      if(go){ gateTarget=0; crossingDing(true); } else crossingDing(false);   // GO → raise the gate
+      idx++; countTimer=setTimeout(tick, go?650:720);
+    } else { countText=''; counting=false; last=performance.now(); }
   })();
+}
+// draw the crossing gate + count number onto the canvas (sized to the board, so correct on any screen)
+function drawCountdown(now){
+  gateProg += (gateTarget-gateProg)*0.16;                    // ease toward open/closed
+  if(gateProg<0.01 && !counting && !countText){ gateProg=0; return; }
+  const W=cv.width, H=cv.height, px=W*0.05, py=H*0.5, L=W*0.9, TH=Math.max(12,H*0.07);
+  // post + base
+  ctx.fillStyle='#3a3a3a'; ctx.fillRect(px-TH*0.45, py-TH*0.3, TH*0.9, H*0.5);
+  ctx.fillStyle='#2a2a2a'; ctx.fillRect(px-TH*0.9, py+H*0.5-TH*0.5, TH*1.8, TH*0.5);
+  // blinking crossing lights on the post
+  const blink=Math.floor(now/280)%2;
+  ctx.fillStyle=blink?'#ff1744':'#4a0000'; ctx.beginPath(); ctx.arc(px-TH*0.35, py+TH*0.9, TH*0.26,0,7); ctx.fill();
+  ctx.fillStyle=blink?'#4a0000':'#ff1744'; ctx.beginPath(); ctx.arc(px+TH*0.35, py+TH*0.9, TH*0.26,0,7); ctx.fill();
+  // boom arm: rotates from up (open) to horizontal (closed)
+  ctx.save(); ctx.translate(px,py); ctx.rotate((gateProg-1)*Math.PI/2);
+  const segs=9, sl=L/segs;
+  for(let i=0;i<segs;i++){ ctx.fillStyle=i%2?'#f5f5f5':'#e53935'; ctx.fillRect(i*sl,-TH/2, sl+1, TH); }
+  ctx.strokeStyle='rgba(0,0,0,.45)'; ctx.lineWidth=2; ctx.strokeRect(0,-TH/2,L,TH);
+  ctx.restore();
+  // count number, with a little pop
+  if(countText){
+    const pop=Math.min(1,(now-countChangeT)/160), sc=1.3-0.3*pop;
+    ctx.save(); ctx.translate(W/2,H/2); ctx.scale(sc,sc);
+    ctx.font=`900 ${Math.floor(H*0.26)}px system-ui,-apple-system,sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.lineWidth=Math.max(5,W*0.02); ctx.strokeStyle='rgba(0,0,0,.65)'; ctx.strokeText(countText,0,0);
+    ctx.fillStyle='#fff'; ctx.fillText(countText,0,0);
+    ctx.restore();
+  }
 }
 function newGame(){ reset(true); startCountdown(); }
 // ---- Game over: freeze, show the score, wait for Restart ----
@@ -607,23 +627,30 @@ function bell(freq,t0,vol){
 function chime(){ if(!actx) return; const t=actx.currentTime; bell(700,t,0.5); bell(700,t+0.13,0.5); }
 // cute steam whistle "toot-toot" when a boost starts
 function whistle(){ if(!actx) return; const d=music.gain||actx.destination;
-  const toot=(t,dur)=>[81,85,88].forEach(m=>{               // bright A-major chord toot
+  const toot=(t,dur)=>[69,76,81].forEach((m,i)=>{            // A4 body + E5 + A5 bright = bold whistle
     const o=actx.createOscillator(), g=actx.createGain();
-    o.type='triangle'; o.frequency.value=440*Math.pow(2,(m-69)/12);
-    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.09,t+0.02);
+    o.type=i===0?'sawtooth':'triangle'; o.frequency.value=440*Math.pow(2,(m-69)/12);
+    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(i===0?0.20:0.14,t+0.035);
     g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    o.connect(g); g.connect(d); o.start(t); o.stop(t+dur+0.03);
+    o.connect(g); g.connect(d); o.start(t); o.stop(t+dur+0.05);
   });
-  const t0=actx.currentTime; toot(t0,0.15); toot(t0+0.19,0.22);
+  const t0=actx.currentTime; toot(t0,0.22); toot(t0+0.24,0.30);   // toot — toot (louder, smoother)
 }
-// steam release "pshhh" (filtered noise) on each 10-cargo milestone
-function steamSound(){ if(!actx) return; const t=actx.currentTime, dur=0.55;
-  const buf=actx.createBuffer(1, Math.floor(actx.sampleRate*dur), actx.sampleRate), dat=buf.getChannelData(0);
-  for(let i=0;i<dat.length;i++) dat[i]=Math.random()*2-1;
-  const src=actx.createBufferSource(); src.buffer=buf;
-  const bp=actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.setValueAtTime(1300,t); bp.frequency.exponentialRampToValueAtTime(2600,t+dur); bp.Q.value=0.8;
-  const g=actx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.22,t+0.04); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-  src.connect(bp); bp.connect(g); g.connect(music.gain||actx.destination); src.start(t); src.stop(t+dur);
+// big long locomotive steam chuff on each 10-cargo milestone: chuff-chuff-chuff-hisss
+function steamSound(){ if(!actx) return; const t0=actx.currentTime, d=music.gain||actx.destination;
+  const chuff=(t,dur,f0,f1,vol)=>{
+    const len=Math.floor(actx.sampleRate*dur), buf=actx.createBuffer(1,len,actx.sampleRate), dat=buf.getChannelData(0);
+    for(let i=0;i<len;i++) dat[i]=Math.random()*2-1;
+    const src=actx.createBufferSource(); src.buffer=buf;
+    const bp=actx.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=0.85;
+    bp.frequency.setValueAtTime(f0,t); bp.frequency.exponentialRampToValueAtTime(f1,t+dur);
+    const g=actx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(vol,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    src.connect(bp); bp.connect(g); g.connect(d); src.start(t); src.stop(t+dur+0.03);
+  };
+  chuff(t0,      0.28, 700, 2000, 0.30);
+  chuff(t0+0.30, 0.26, 800, 2200, 0.27);
+  chuff(t0+0.56, 0.24, 900, 2400, 0.24);
+  chuff(t0+0.80, 0.70, 1200, 3200, 0.22);   // long trailing hiss
 }
 function schedule(){
   const s=SONGS[music.songIdx], E=60/s.bpm/2, horizon=actx.currentTime+0.3;
