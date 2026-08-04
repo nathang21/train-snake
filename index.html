@@ -485,12 +485,16 @@ buildSwatches('p2colors','2',5);   // blue
 // length so they stay in sync; when a song ends the medley rolls into the next one.
 function oompah(roots){ const b=[]; roots.forEach(r=>{ for(let k=0;k<4;k++) b.push([r,1],[r+7,1]); }); return b; } // driving 8th-note pulse
 const SONGS=[
-  { name:'Tetris (Korobeiniki)', bpm:150, leadType:'square', bassType:'triangle', lead:[ // E-minor folk hook
-    [76,2],[71,1],[72,1],[74,2],[72,1],[71,1],   [69,2],[69,1],[72,1],[76,2],[74,1],[72,1],
-    [71,3],[72,1],[74,2],[76,2],                 [72,2],[69,2],[69,4],
-    [74,2],[77,1],[81,2],[79,1],[77,2],          [76,3],[72,1],[76,2],[74,1],[72,1],
-    [71,2],[71,1],[72,1],[74,2],[76,2],          [72,2],[69,2],[69,4],
-  ], bass:oompah([52,47,45,52, 50,45,47,52]) },
+  { name:'Full Steam', bpm:144, leadType:'square', bassType:'triangle', lead:[ // original A-minor driver: A A' B outro
+    [69,2],[72,1],[76,1],[81,2],[76,2],   [79,2],[76,1],[74,1],[72,2],[74,2],
+    [77,2],[72,1],[76,1],[79,2],[76,2],   [74,2],[71,1],[74,1],[69,4],
+    [69,2],[72,1],[76,1],[81,2],[76,2],   [79,2],[76,1],[74,1],[72,2],[74,2],
+    [77,2],[72,1],[76,1],[79,2],[81,2],   [83,2],[81,1],[79,1],[76,4],
+    [84,2],[83,1],[81,1],[79,2],[77,2],   [79,2],[77,1],[76,1],[74,2],[72,2],
+    [69,1],[72,1],[76,1],[81,1],[76,1],[81,1],[84,2],   [83,2],[80,2],[76,2],[71,2],
+    [69,2],[72,1],[76,1],[81,2],[79,2],   [77,2],[76,1],[74,1],[72,2],[71,2],
+    [74,2],[79,1],[77,1],[76,2],[74,2],   [71,2],[69,2],[68,2],[69,2],
+  ], bass:oompah([45,43,41,40, 45,43,41,40, 48,43,45,40, 45,41,43,40]) },
   { name:'Sunny Rails', bpm:130, bassType:'sine', lead:[   // C major, bright & bouncy
     [76,2],[72,1],[74,1],[76,2],[79,2],   [77,2],[74,1],[72,1],[74,4],
     [72,2],[76,1],[77,1],[76,2],[72,2],   [74,2],[72,1],[71,1],[72,4],
@@ -513,6 +517,11 @@ const SONGS=[
   ], bass:oompah([48,45,41,43, 48,45,41,43]) },
 ];
 let actx=null, music={on:false, gain:null, timer:null, songIdx:0, lead:null, bass:null};
+function ensureAudio(){ try{
+  if(!actx){ actx=new (window.AudioContext||window.webkitAudioContext)();
+    music.gain=actx.createGain(); music.gain.gain.value=0.5; music.gain.connect(actx.destination); }
+  if(actx.state==='suspended') actx.resume();
+}catch(e){} }
 function midi(m){return 440*Math.pow(2,(m-69)/12);}
 function tone(freq,start,dur,type,vol,dest,detune){
   const g=actx.createGain();
@@ -523,8 +532,19 @@ function tone(freq,start,dur,type,vol,dest,detune){
   const osc=(dt)=>{ const o=actx.createOscillator(); o.type=type; o.frequency.value=freq; if(dt) o.detune.value=dt; o.connect(g); o.start(start); o.stop(start+dur+0.05); };
   osc(0); if(detune){ osc(detune); osc(-detune); }   // layered detune = fuller lead
 }
-function chime(){ if(!actx) return; const t=actx.currentTime, d=music.gain||actx.destination;
-  tone(midi(84),t,0.12,'square',0.15,d); tone(midi(88),t+0.06,0.14,'square',0.13,d); }
+// cargo pickup = a little train bell (metallic ding, struck twice)
+function bell(freq,t0,vol){
+  const d=music.gain||actx.destination;
+  [[1,0.5,0.55],[2.0,0.5,0.40],[2.76,0.35,0.30],[3.6,0.22,0.24],[5.2,0.14,0.18]].forEach(([r,a,dec])=>{
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.type='sine'; o.frequency.value=freq*r;
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.linearRampToValueAtTime(vol*a,t0+0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dec);
+    o.connect(g); g.connect(d); o.start(t0); o.stop(t0+dec+0.05);
+  });
+}
+function chime(){ if(!actx) return; const t=actx.currentTime; bell(700,t,0.5); bell(700,t+0.13,0.5); }
 function schedule(){
   const s=SONGS[music.songIdx], E=60/s.bpm/2, horizon=actx.currentTime+0.3;
   const lt=s.leadType||'square', bt=s.bassType||'triangle';
@@ -546,9 +566,7 @@ function schedule(){
   }
 }
 function toggleMusic(){
-  if(!actx){ actx=new (window.AudioContext||window.webkitAudioContext)();
-    music.gain=actx.createGain(); music.gain.gain.value=0.5; music.gain.connect(actx.destination); }
-  if(actx.state==='suspended') actx.resume();
+  ensureAudio();
   music.on=!music.on;
   const btn=document.getElementById('music');
   btn.textContent='🎵 Music: '+(music.on?'On':'Off'); btn.classList.toggle('on',music.on);
@@ -557,6 +575,9 @@ function toggleMusic(){
   else { clearInterval(music.timer); music.timer=null; }
 }
 document.getElementById('music').onclick=toggleMusic;
+// unlock the audio context on the first user gesture so the cargo bell rings even with music off
+function unlockAudio(){ ensureAudio(); ['keydown','pointerdown','touchstart'].forEach(ev=>window.removeEventListener(ev,unlockAudio)); }
+['keydown','pointerdown','touchstart'].forEach(ev=>window.addEventListener(ev,unlockAudio,{passive:true}));
 
 if('serviceWorker' in navigator){
   addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
