@@ -83,7 +83,9 @@
   #close,#restart{margin-top:16px; width:100%; border:none; border-radius:12px; padding:14px; font-size:17px; font-weight:900;
     color:#14263a; background:var(--gold); cursor:pointer;}
   /* colour swatches */
-  .grp.wrap .sw{flex:1 1 calc(20% - 4px); height:38px; min-height:38px; padding:0; border:2px solid rgba(0,0,0,.3);}
+  .grp.wrap .sw{flex:1 1 calc(20% - 4px); height:38px; min-height:38px; padding:0; border:2px solid rgba(0,0,0,.3);
+    display:flex; align-items:center; justify-content:center;}
+  .grp.wrap .sw.sw-rb{background:#1b2534; font-size:22px;}  /* rainbow = 🌈 emoji on a neutral tile */
   .grp.wrap .sw.on{outline:3px solid var(--gold); outline-offset:1px;}  /* gold ring shows on any colour, incl. white/black */
   #over .sheet{text-align:center;}
   #over-score{font-size:26px; font-weight:900; margin:6px 0 2px;}
@@ -447,7 +449,7 @@ const PALETTE=[
   {n:'Purple',b:'#ab47bc',d:'#6a1b9a'}, {n:'Pink',b:'#ec407a',d:'#ad1457'},
   {n:'White',b:'#f5f5f5',d:'#9e9e9e'}, {n:'Black',b:'#3d3d3d',d:'#141414'},
   {n:'Brown',b:'#8d6e63',d:'#4e342e'},
-  {n:'Rainbow 🌈',rainbow:true,b:'conic-gradient(from 0deg,#ff004c,#ff8a00,#ffee00,#00d26a,#00b7ff,#a259ff,#ff004c)'},
+  {n:'Rainbow',rainbow:true,emoji:'🌈'},
 ];
 let colorIdx={'1':0,'2':5};          // selected palette index per player (persists across resets)
 function setColor(player,i){
@@ -464,7 +466,8 @@ function buildSwatches(boxId, player, selIdx){
   const box=document.getElementById(boxId); box.innerHTML='';
   PALETTE.forEach((c,i)=>{
     const b=document.createElement('button');
-    b.className='sw'+(i===selIdx?' on':''); b.style.background=c.b; b.title=c.n;
+    b.className='sw'+(i===selIdx?' on':''); b.title=c.n;
+    if(c.emoji){ b.textContent=c.emoji; b.classList.add('sw-rb'); } else { b.style.background=c.b; }
     b.onclick=()=>{ setColor(player,i); [...box.children].forEach(x=>x.classList.toggle('on',x===b)); };
     box.appendChild(b);
   });
