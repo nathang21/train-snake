@@ -39,7 +39,15 @@
   .bar-title{font-size:clamp(13px,2.8vw,18px); font-weight:900; letter-spacing:1px; white-space:nowrap;
     background:linear-gradient(90deg,var(--p1),var(--gold),var(--p2)); -webkit-background-clip:text; background-clip:text; color:transparent;}
   /* stage centres the board in the space left after the bar + reserved pad zones */
-  #stage{flex:1; width:100%; min-height:0; display:flex; align-items:center; justify-content:center;}
+  #stage{flex:1; width:100%; min-height:0; display:flex; align-items:center; justify-content:center; position:relative;}
+  /* pre-round railroad-crossing countdown */
+  #count{position:absolute; inset:0; display:none; align-items:center; justify-content:center; pointer-events:none; z-index:4;}
+  #count::before{content:''; position:absolute; left:2%; right:2%; top:40%; height:20%; border-radius:6px;
+    background:repeating-linear-gradient(45deg,#e53935 0 18px,#fff 18px 36px); opacity:.85; box-shadow:0 6px 20px rgba(0,0,0,.5);}
+  #count .n{position:relative; font-size:clamp(64px,20vw,150px); font-weight:900; color:#fff;
+    text-shadow:0 4px 14px #000, 0 0 8px #000;}
+  #count .n.pulse{animation:countpulse .45s ease-out;}
+  @keyframes countpulse{0%{transform:scale(.4);opacity:0}40%{transform:scale(1.18);opacity:1}100%{transform:scale(1);opacity:1}}
   #board{border-radius:16px; box-shadow:0 12px 40px rgba(0,0,0,.6), inset 0 0 0 4px rgba(255,255,255,.08);
     background:#0f1d2b; touch-action:none;}
   /* touch pads */
@@ -90,6 +98,8 @@
   #over .sheet{text-align:center;}
   #over-score{font-size:26px; font-weight:900; margin:6px 0 2px;}
   #over-best{font-size:15px; font-weight:700; opacity:.85; margin:0 0 6px;}
+  .cargo-chip{display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px;
+    background:var(--p1); border:1px solid rgba(0,0,0,.35);}  /* mirrors P1's train colour */
   .mini{margin-top:10px; width:100%; background:transparent; border:1px solid rgba(255,255,255,.22);
     color:#fff; opacity:.8; font-size:14px; font-weight:700; padding:11px; border-radius:10px; cursor:pointer;}
   body.one .s2, body.one #pad2, body.one .p2only{display:none;}
@@ -102,7 +112,7 @@
     <div id="scores"><span class="s1">P1 <span id="sc1">0</span></span><span class="s2">P2 <span id="sc2">0</span></span></div>
     <span class="bar-title">🚂 Train Snake</span>
   </div>
-  <div id="stage"><canvas id="board"></canvas></div>
+  <div id="stage"><canvas id="board"></canvas><div id="count"><div class="n"></div></div></div>
 </div>
 
 <div class="pad" id="pad1">
@@ -127,7 +137,7 @@
       <div class="grp"><button id="m1" class="on">1P</button><button id="m2">2P</button></div></div>
     <div class="row"><span>Speed</span>
       <div class="grp"><button data-tick="240">🐢</button><button data-tick="180" class="on">🚂</button><button data-tick="120">🐇</button></div></div>
-    <div class="row col"><span>Cargo 🟨</span>
+    <div class="row col"><span>Cargo <i class="cargo-chip"></i></span>
       <div class="grp wrap">
         <button data-cargo="1" class="on">1</button><button data-cargo="2">2</button><button data-cargo="3">3</button><button data-cargo="4">4</button><button data-cargo="5">5</button><button data-cargo="6">6</button><button data-cargo="7">7</button><button data-cargo="8">8</button><button data-cargo="9">9</button><button data-cargo="10">10</button>
       </div></div>
@@ -191,13 +201,15 @@ const OPP={up:'down',down:'up',left:'right',right:'left'};
 
 function makeTrain(x,y,dir,color,dark){
   return {body:[{x,y},{x:x-DIRS[dir][0],y:y-DIRS[dir][1]},{x:x-2*DIRS[dir][0],y:y-2*DIRS[dir][1]}],
-    dir, next:dir, color, dark, score:0, grow:0};
+    dir, next:dir, color, dark, score:0, grow:0, acc:0, int:180, boost:false, wasBoost:false, burstT:0, prev:null};
 }
 let p1,p2,cargos=[],prev;
 let mode=1;          // number of players (1 or 2) — starts single-player
 let tick=180;        // ms per move; lower = faster
 let cargoCount=1;    // how many cargo pickups on the board at once (1–5)
+let heldDir={'1':null,'2':null};   // direction key held per player, for boost
 function actives(){ return mode===2 ? [p1,p2] : [p1]; }
+function trainInterval(t){ return t.boost ? Math.max(60, tick*0.42) : tick; }  // boost ≈ 2.4× faster while held
 
 function reset(full){
   const s1=(!full&&p1)?p1.score:0, s2=(!full&&p2)?p2.score:0;
@@ -206,8 +218,8 @@ function reset(full){
   p1.score=s1; p2.score=s2;
   setColor('1',colorIdx['1']); setColor('2',colorIdx['2']);   // re-apply chosen colours (incl. rainbow)
   cargos=[]; refillCargo();
-  prev=snapshot();
-  acc=0;
+  for(const t of [p1,p2]){ t.prev=t.body.map(s=>({...s})); t.acc=0; t.int=tick; t.boost=false; t.wasBoost=false; }
+  heldDir={'1':null,'2':null};
 }
 function getVar(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
 function snapshot(){return {p1:p1.body.map(s=>({...s})), p2:p2.body.map(s=>({...s}))};}
@@ -225,15 +237,23 @@ function refillCargo(){ while(cargos.length<cargoCount) cargos.push(freeCell());
 function setDir(t,d){ if(d!==OPP[t.dir]) t.next=d; }
 
 // input
+const KEYMAP={arrowup:['1','up'],arrowdown:['1','down'],arrowleft:['1','left'],arrowright:['1','right'],
+             w:['2','up'],s:['2','down'],a:['2','left'],d:['2','right']};
 addEventListener('keydown',e=>{
-  const k=e.key.toLowerCase();
-  const m={arrowup:['1','up'],arrowdown:['1','down'],arrowleft:['1','left'],arrowright:['1','right'],
-           w:['2','up'],s:['2','down'],a:['2','left'],d:['2','right']};
-  if(m[k]){e.preventDefault(); const[p,dir]=m[k]; setDir(p==='1'?p1:p2,dir);}
+  const m=KEYMAP[e.key.toLowerCase()];
+  if(m){ e.preventDefault(); const[p,dir]=m; heldDir[p]=dir; setDir(p==='1'?p1:p2,dir); }
+});
+addEventListener('keyup',e=>{
+  const m=KEYMAP[e.key.toLowerCase()];
+  if(m){ const[p,dir]=m; if(heldDir[p]===dir) heldDir[p]=null; }   // release → stop boosting
 });
 document.querySelectorAll('.pad button').forEach(b=>{
-  const go=e=>{e.preventDefault(); haptic(14); setDir(b.dataset.p==='1'?p1:p2,b.dataset.d);};
+  const p=b.dataset.p, dir=b.dataset.d;
+  const go=e=>{e.preventDefault(); haptic(14); heldDir[p]=dir; setDir(p==='1'?p1:p2,dir);};
+  const rel=()=>{ if(heldDir[p]===dir) heldDir[p]=null; };   // hold to boost, release to stop
   b.addEventListener('touchstart',go,{passive:false}); b.addEventListener('mousedown',go);
+  b.addEventListener('touchend',rel); b.addEventListener('touchcancel',rel);
+  b.addEventListener('mouseup',rel); b.addEventListener('mouseleave',rel);
 });
 // swipe on board -> P1
 let sx,sy;
@@ -248,34 +268,26 @@ cv.addEventListener('touchend',e=>{
 
 function crashFlash(){const f=document.getElementById('flash');f.style.opacity=.85;setTimeout(()=>f.style.opacity=0,60);}
 
-function step(){
-  prev=snapshot();
-  const pl=actives();
-  for(const t of pl){ t.dir=t.next; const[dx,dy]=DIRS[t.dir];
-    t.body.unshift({x:t.body[0].x+dx, y:t.body[0].y+dy});
-    if(t.grow>0){t.grow--;} else {t.body.pop();}
-  }
-  // cargo (any train head landing on any cargo grabs it; refill to keep the count)
-  for(const t of pl){
-    const h=t.body[0];
-    const idx=cargos.findIndex(c=>c.x===h.x && c.y===h.y);
-    if(idx>=0){ t.grow+=1; t.score++; chime(); haptic(22); cargos.splice(idx,1); }
-  }
+// move ONE train one cell (trains step on independent timers so boost is per-player)
+function stepTrain(t){
+  t.prev = t.body.map(s=>({...s}));
+  t.dir=t.next; const[dx,dy]=DIRS[t.dir];
+  t.body.unshift({x:t.body[0].x+dx, y:t.body[0].y+dy});
+  if(t.grow>0){t.grow--;} else {t.body.pop();}
+  const h=t.body[0];
+  // cargo
+  const idx=cargos.findIndex(c=>c.x===h.x && c.y===h.y);
+  if(idx>=0){ t.grow+=1; t.score++; chime(); haptic(22); cargos.splice(idx,1);
+    if(t.score%10===0){ t.burstT=performance.now(); steamSound(); } }   // every +10 cargo → big steam puff
   refillCargo();
   document.getElementById('sc1').textContent=p1.score;
   document.getElementById('sc2').textContent=p2.score;
-  // collisions
-  const all=pl.flatMap(t=>t.body.map(s=>({...s})));
-  let crash=false;
-  for(const t of pl){
-    const h=t.body[0];
-    if(h.x<0||h.y<0||h.x>=COLS||h.y>=ROWS){crash=true;break;}
-    // hit any body segment other than own head
-    let cnt=0;
-    for(const s of all){ if(s.x===h.x&&s.y===h.y) cnt++; }
-    if(cnt>1){crash=true;break;}
+  // collisions: head vs walls / self / the other active train
+  let crash = h.x<0||h.y<0||h.x>=COLS||h.y>=ROWS;
+  if(!crash){ let cnt=0;
+    for(const tr of actives()) for(const s of tr.body){ if(s.x===h.x&&s.y===h.y && ++cnt>1){ crash=true; } }
   }
-  if(crash){crashFlash(); haptic([50,40,80]); showGameOver();}
+  if(crash){ crashFlash(); haptic([50,40,80]); showGameOver(); }
 }
 
 // smooth render with interpolation
@@ -334,13 +346,22 @@ function drawTrain(t,pb,alpha){
         ctx.fillStyle=`rgba(225,225,225,${0.4*(1-life)})`;
         ctx.beginPath(); ctx.arc(cx, cy - S*0.2 - life*S*1.1, S*(0.09+life*0.2),0,7); ctx.fill();
       }
+      // milestone burst: a big billowing plume for ~1.2s after each +10 cargo
+      if(t.burstT){ const el=performance.now()-t.burstT;
+        if(el<1200){ const prog=el/1200;
+          for(let k=0;k<8;k++){ const life=(prog+k/8)%1, spread=(k-3.5)*S*0.14;
+            ctx.fillStyle=`rgba(255,255,255,${0.6*(1-life)})`;
+            ctx.beginPath(); ctx.arc(cx+spread*life, cy - S*0.25 - life*S*1.9, S*(0.12+life*0.38),0,7); ctx.fill();
+          }
+        }
+      }
     }
   }
 }
 
 let bodyRB=false;
 function rainbowOn(){ return !!((p1&&p1.rainbow) || (mode===2 && p2 && p2.rainbow)); }
-function render(alpha){
+function render(){
   const now=performance.now(), RB=rainbowOn();
   if(RB!==bodyRB){ document.body.classList.toggle('rainbow', RB); bodyRB=RB; }  // silly page-wide theme
   if(RB){ // cycle the score / D-pad / title colours for whichever trains are rainbow
@@ -363,27 +384,66 @@ function render(alpha){
   for(let i=0;i<=COLS;i++){ctx.beginPath();ctx.moveTo(i*CELL,0);ctx.lineTo(i*CELL,cv.height);ctx.stroke();}
   for(let j=0;j<=ROWS;j++){ctx.beginPath();ctx.moveTo(0,j*CELL);ctx.lineTo(cv.width,j*CELL);ctx.stroke();}
   // cargo (each pickup bobs on its own phase so they don't pulse in unison)
-  const gold=getVar('--gold'), p=CELL*0.16;
+  const cargoCol = p1.rainbow ? `hsl(${(now/12)%360},90%,62%)` : p1.color, p=CELL*0.16;  // cargo matches P1's train colour
   for(let ci=0;ci<cargos.length;ci++){
     const c=cargos[ci], cx=c.x*CELL, cy=c.y*CELL;
     const bob=Math.sin(now/300 + ci*1.7)*CELL*0.05;
-    ctx.fillStyle = RB ? `hsl(${(now/6 + ci*50)%360},95%,60%)` : gold;
+    ctx.fillStyle = cargoCol;
     rr(ctx,cx+p,cy+p+bob,CELL-p*2,CELL-p*2,CELL*0.18); ctx.fill();
     ctx.fillStyle='rgba(0,0,0,.25)';
     ctx.fillRect(cx+p, cy+CELL/2-1+bob, CELL-p*2, 2);
     ctx.fillRect(cx+CELL/2-1, cy+p+bob, 2, CELL-p*2);
   }
-  drawTrain(p1,prev.p1,alpha);
-  if(mode===2) drawTrain(p2,prev.p2,alpha);
+  drawTrain(p1, p1.prev||p1.body, Math.min(1, p1.acc/(p1.int||tick)));
+  if(mode===2) drawTrain(p2, p2.prev||p2.body, Math.min(1, p2.acc/(p2.int||tick)));
 }
 
 let paused=false, dead=false;
+let counting=false;
+function updateBoost(){
+  const live = !(paused||dead||counting);
+  [['1',p1],['2',p2]].forEach(([pl,t])=>{ if(!t) return;
+    const b = live && heldDir[pl]!=null && heldDir[pl]===t.dir;
+    if(b && !t.wasBoost) whistle();      // cute toot-toot when a boost begins
+    t.boost=b; t.wasBoost=b;
+  });
+}
 function loop(now){
-  const dt=now-last; last=now;
-  if(paused||dead){ acc=0; } else { acc+=dt; while(acc>=tick){ acc-=tick; step(); } }
-  render(acc/tick);
+  let dt=now-last; last=now; if(dt>100) dt=100;   // clamp tab-switch gaps
+  updateBoost();
+  if(!(paused||dead||counting)){
+    for(const t of actives()){
+      const iv=trainInterval(t); t.int=iv; t.acc+=dt;
+      let g=0; while(t.acc>=iv && !dead){ t.acc-=iv; stepTrain(t); if(++g>20){ t.acc=0; break; } }
+    }
+  }
+  render();
   requestAnimationFrame(loop);
 }
+// ---- Pre-round countdown with railroad-crossing bells ----
+const countEl=document.getElementById('count'), countNum=countEl.querySelector('.n');
+function crossingDing(go){ if(!actx) return; const t=actx.currentTime;
+  if(go){ bell(1046,t,0.5); bell(1046,t+0.13,0.5); }        // bright "go" chime
+  else { bell(880,t,0.45); bell(660,t+0.14,0.45); }         // alternating crossing bell: ding-ding
+}
+let countTimer=null;
+function startCountdown(){
+  counting=true; clearTimeout(countTimer);
+  const steps=['3','2','1','GO!']; let idx=0;
+  countEl.style.display='flex';
+  (function tick(){
+    if(idx<steps.length){
+      const go=steps[idx]==='GO!';
+      countNum.textContent=steps[idx];
+      countNum.classList.remove('pulse'); void countNum.offsetWidth; countNum.classList.add('pulse');
+      crossingDing(go); idx++;
+      countTimer=setTimeout(tick, go?550:750);
+    } else {
+      countEl.style.display='none'; counting=false; last=performance.now(); acc=0;
+    }
+  })();
+}
+function newGame(){ reset(true); startCountdown(); }
 // ---- Game over: freeze, show the score, wait for Restart ----
 const over=document.getElementById('over');
 // ---- Persistent best scores (per player, this browser only) ----
@@ -410,7 +470,7 @@ function showGameOver(){
   over.classList.add('open');
 }
 document.getElementById('restart').onclick=()=>{
-  over.classList.remove('open'); dead=false; reset(true); last=performance.now(); acc=0;
+  over.classList.remove('open'); dead=false; newGame();
 };
 document.getElementById('resethi').onclick=(e)=>{
   hi={p1:0,p2:0}; saveHi();
@@ -422,7 +482,7 @@ const modal=document.getElementById('modal');
 function openSettings(){ paused=true; modal.classList.add('open'); }
 function closeSettings(){
   modal.classList.remove('open');
-  if(dead){ over.classList.remove('open'); dead=false; reset(true); }  // game was over → Play starts fresh
+  if(dead){ over.classList.remove('open'); dead=false; newGame(); }  // game was over → Play starts a fresh round (with countdown)
   paused=false; last=performance.now(); acc=0;
 }
 document.getElementById('gear').onclick=openSettings;
@@ -545,6 +605,26 @@ function bell(freq,t0,vol){
   });
 }
 function chime(){ if(!actx) return; const t=actx.currentTime; bell(700,t,0.5); bell(700,t+0.13,0.5); }
+// cute steam whistle "toot-toot" when a boost starts
+function whistle(){ if(!actx) return; const d=music.gain||actx.destination;
+  const toot=(t,dur)=>[81,85,88].forEach(m=>{               // bright A-major chord toot
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.type='triangle'; o.frequency.value=440*Math.pow(2,(m-69)/12);
+    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.09,t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(d); o.start(t); o.stop(t+dur+0.03);
+  });
+  const t0=actx.currentTime; toot(t0,0.15); toot(t0+0.19,0.22);
+}
+// steam release "pshhh" (filtered noise) on each 10-cargo milestone
+function steamSound(){ if(!actx) return; const t=actx.currentTime, dur=0.55;
+  const buf=actx.createBuffer(1, Math.floor(actx.sampleRate*dur), actx.sampleRate), dat=buf.getChannelData(0);
+  for(let i=0;i<dat.length;i++) dat[i]=Math.random()*2-1;
+  const src=actx.createBufferSource(); src.buffer=buf;
+  const bp=actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.setValueAtTime(1300,t); bp.frequency.exponentialRampToValueAtTime(2600,t+dur); bp.Q.value=0.8;
+  const g=actx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.22,t+0.04); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  src.connect(bp); bp.connect(g); g.connect(music.gain||actx.destination); src.start(t); src.stop(t+dur);
+}
 function schedule(){
   const s=SONGS[music.songIdx], E=60/s.bpm/2, horizon=actx.currentTime+0.3;
   const lt=s.leadType||'square', bt=s.bassType||'triangle';
@@ -583,7 +663,7 @@ if('serviceWorker' in navigator){
   addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }
 
-reset(true);
+newGame();
 requestAnimationFrame(loop);
 </script>
 </body>
