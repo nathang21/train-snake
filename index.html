@@ -64,6 +64,7 @@
     background:rgba(0,0,0,.55); backdrop-filter:blur(3px); padding:16px;}
   #modal.open,#over.open{display:flex;}
   #over{z-index:11;}
+  #modal{z-index:12;}   /* settings sits above the game-over overlay so it's reachable when paused */
   .sheet{background:#14263a; border:1px solid rgba(255,255,255,.12); border-radius:20px; padding:20px;
     width:100%; max-width:360px; max-height:calc(100dvh - 32px); overflow-y:auto;
     -webkit-overflow-scrolling:touch; overscroll-behavior:contain; box-shadow:0 20px 60px rgba(0,0,0,.6);}
@@ -85,13 +86,12 @@
   /* colour swatches */
   .grp.wrap .sw{flex:1 1 calc(20% - 4px); height:38px; min-height:38px; padding:0; border:2px solid rgba(0,0,0,.3);
     display:flex; align-items:center; justify-content:center;}
-  .grp.wrap .sw.sw-rb{background:#1b2534; font-size:22px;}  /* rainbow = 🌈 emoji on a neutral tile */
   .grp.wrap .sw.on{outline:3px solid var(--gold); outline-offset:1px;}  /* gold ring shows on any colour, incl. white/black */
   #over .sheet{text-align:center;}
   #over-score{font-size:26px; font-weight:900; margin:6px 0 2px;}
   #over-best{font-size:15px; font-weight:700; opacity:.85; margin:0 0 6px;}
-  #resethi{margin-top:10px; width:100%; background:transparent; border:1px solid rgba(255,255,255,.2);
-    color:#fff; opacity:.7; font-size:13px; font-weight:700; padding:9px; border-radius:9px; cursor:pointer;}
+  .mini{margin-top:10px; width:100%; background:transparent; border:1px solid rgba(255,255,255,.22);
+    color:#fff; opacity:.8; font-size:14px; font-weight:700; padding:11px; border-radius:10px; cursor:pointer;}
   body.one .s2, body.one #pad2, body.one .p2only{display:none;}
 </style>
 </head>
@@ -146,6 +146,7 @@
     <div id="over-best"></div>
     <p class="sub" id="over-sub" style="margin-top:0"></p>
     <button id="restart">↻ Restart</button>
+    <button id="over-settings" class="mini">⚙️ Settings</button>
   </div>
 </div>
 
@@ -419,8 +420,13 @@ document.getElementById('resethi').onclick=(e)=>{
 // ---- Settings modal (players / speed / music) ----
 const modal=document.getElementById('modal');
 function openSettings(){ paused=true; modal.classList.add('open'); }
-function closeSettings(){ modal.classList.remove('open'); paused=false; last=performance.now(); acc=0; }
+function closeSettings(){
+  modal.classList.remove('open');
+  if(dead){ over.classList.remove('open'); dead=false; reset(true); }  // game was over → Play starts fresh
+  paused=false; last=performance.now(); acc=0;
+}
 document.getElementById('gear').onclick=openSettings;
+document.getElementById('over-settings').onclick=openSettings;   // reach settings from the game-over screen
 document.getElementById('close').onclick=closeSettings;
 modal.addEventListener('click',e=>{ if(e.target===modal) closeSettings(); }); // tap backdrop to close
 
@@ -449,7 +455,7 @@ const PALETTE=[
   {n:'Purple',b:'#ab47bc',d:'#6a1b9a'}, {n:'Pink',b:'#ec407a',d:'#ad1457'},
   {n:'White',b:'#f5f5f5',d:'#9e9e9e'}, {n:'Black',b:'#3d3d3d',d:'#141414'},
   {n:'Brown',b:'#8d6e63',d:'#4e342e'},
-  {n:'Rainbow',rainbow:true,emoji:'🌈'},
+  {n:'Rainbow',rainbow:true,b:'linear-gradient(135deg,#ff3b30 0 17%,#ff9f0a 17% 34%,#ffd60a 34% 50%,#30d158 50% 67%,#0a84ff 67% 84%,#bf5af2 84% 100%)'},
 ];
 let colorIdx={'1':0,'2':5};          // selected palette index per player (persists across resets)
 function setColor(player,i){
@@ -466,8 +472,7 @@ function buildSwatches(boxId, player, selIdx){
   const box=document.getElementById(boxId); box.innerHTML='';
   PALETTE.forEach((c,i)=>{
     const b=document.createElement('button');
-    b.className='sw'+(i===selIdx?' on':''); b.title=c.n;
-    if(c.emoji){ b.textContent=c.emoji; b.classList.add('sw-rb'); } else { b.style.background=c.b; }
+    b.className='sw'+(i===selIdx?' on':''); b.title=c.n; b.style.background=c.b;
     b.onclick=()=>{ setColor(player,i); [...box.children].forEach(x=>x.classList.toggle('on',x===b)); };
     box.appendChild(b);
   });
@@ -478,8 +483,14 @@ buildSwatches('p2colors','2',5);   // blue
 // ---- Audio: a cycling multi-song chiptune medley + cargo chime (Web Audio, no files) ----
 // Notes are [midi, duration-in-eighths]; 0 = rest. Each song's lead & bass are equal
 // length so they stay in sync; when a song ends the medley rolls into the next one.
-function oompah(roots){ const b=[]; roots.forEach(r=>b.push([r,2],[r+7,2],[r,2],[r+7,2])); return b; }
+function oompah(roots){ const b=[]; roots.forEach(r=>{ for(let k=0;k<4;k++) b.push([r,1],[r+7,1]); }); return b; } // driving 8th-note pulse
 const SONGS=[
+  { name:'Tetris (Korobeiniki)', bpm:150, leadType:'square', bassType:'triangle', lead:[ // E-minor folk hook
+    [76,2],[71,1],[72,1],[74,2],[72,1],[71,1],   [69,2],[69,1],[72,1],[76,2],[74,1],[72,1],
+    [71,3],[72,1],[74,2],[76,2],                 [72,2],[69,2],[69,4],
+    [74,2],[77,1],[81,2],[79,1],[77,2],          [76,3],[72,1],[76,2],[74,1],[72,1],
+    [71,2],[71,1],[72,1],[74,2],[76,2],          [72,2],[69,2],[69,4],
+  ], bass:oompah([52,47,45,52, 50,45,47,52]) },
   { name:'Sunny Rails', bpm:130, bassType:'sine', lead:[   // C major, bright & bouncy
     [76,2],[72,1],[74,1],[76,2],[79,2],   [77,2],[74,1],[72,1],[74,4],
     [72,2],[76,1],[77,1],[76,2],[72,2],   [74,2],[72,1],[71,1],[72,4],
@@ -503,26 +514,28 @@ const SONGS=[
 ];
 let actx=null, music={on:false, gain:null, timer:null, songIdx:0, lead:null, bass:null};
 function midi(m){return 440*Math.pow(2,(m-69)/12);}
-function tone(freq,start,dur,type,vol,dest){
-  const o=actx.createOscillator(), g=actx.createGain();
-  o.type=type; o.frequency.value=freq;
+function tone(freq,start,dur,type,vol,dest,detune){
+  const g=actx.createGain();
   g.gain.setValueAtTime(0.0001,start);
-  g.gain.linearRampToValueAtTime(vol,start+0.02);
+  g.gain.linearRampToValueAtTime(vol,start+0.015);
   g.gain.exponentialRampToValueAtTime(0.0001,start+dur);
-  o.connect(g); g.connect(dest); o.start(start); o.stop(start+dur+0.05);
+  g.connect(dest);
+  const osc=(dt)=>{ const o=actx.createOscillator(); o.type=type; o.frequency.value=freq; if(dt) o.detune.value=dt; o.connect(g); o.start(start); o.stop(start+dur+0.05); };
+  osc(0); if(detune){ osc(detune); osc(-detune); }   // layered detune = fuller lead
 }
 function chime(){ if(!actx) return; const t=actx.currentTime, d=music.gain||actx.destination;
   tone(midi(84),t,0.12,'square',0.15,d); tone(midi(88),t+0.06,0.14,'square',0.13,d); }
 function schedule(){
   const s=SONGS[music.songIdx], E=60/s.bpm/2, horizon=actx.currentTime+0.3;
+  const lt=s.leadType||'square', bt=s.bassType||'triangle';
   while(music.lead.i<s.lead.length && music.lead.t<horizon){
     const [n,d]=s.lead[music.lead.i];
-    if(n>0) tone(midi(n), music.lead.t, E*d*0.92, 'triangle', 0.17, music.gain);
+    if(n>0) tone(midi(n), music.lead.t, E*d*0.9, lt, 0.13, music.gain, 7);   // detuned = fuller lead
     music.lead.t+=E*d; music.lead.i++;
   }
   while(music.bass.i<s.bass.length && music.bass.t<horizon){
     const [n,d]=s.bass[music.bass.i];
-    if(n>0) tone(midi(n), music.bass.t, E*d*0.85, s.bassType, 0.20, music.gain);
+    if(n>0) tone(midi(n), music.bass.t, E*d*0.8, bt, 0.16, music.gain);
     music.bass.t+=E*d; music.bass.i++;
   }
   // whole song scheduled → roll into the next one, continuing from its end time
