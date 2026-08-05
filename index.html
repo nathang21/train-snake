@@ -40,8 +40,10 @@
     background:linear-gradient(90deg,var(--p1),var(--gold),var(--p2)); -webkit-background-clip:text; background-clip:text; color:transparent;}
   /* stage centres the board in the space left after the bar + reserved pad zones */
   #stage{flex:1; width:100%; min-height:0; display:flex; align-items:center; justify-content:center;}
-  #board{border-radius:16px; box-shadow:0 12px 40px rgba(0,0,0,.6), inset 0 0 0 4px rgba(255,255,255,.08);
-    background:#0f1d2b; touch-action:none;}
+  /* wrapper does the rounding/clipping (reliable on iOS, unlike border-radius on a redrawn <canvas>) */
+  #boardwrap{border-radius:16px; overflow:hidden; display:inline-block; line-height:0; background:#0f1d2b;
+    box-shadow:0 12px 40px rgba(0,0,0,.6), inset 0 0 0 4px rgba(255,255,255,.08);}
+  #board{display:block; background:#0f1d2b; touch-action:none;}
   /* touch pads */
   .pad{position:fixed; bottom:calc(18px + env(safe-area-inset-bottom)); width:186px; height:186px; display:none; touch-action:none; z-index:5;}
   #pad1{left:calc(16px + env(safe-area-inset-left));} #pad2{right:calc(16px + env(safe-area-inset-right));}
@@ -104,7 +106,7 @@
     <div id="scores"><span class="s1">P1 <span id="sc1">0</span></span><span class="s2">P2 <span id="sc2">0</span></span></div>
     <span class="bar-title">🚂 Train Snake</span>
   </div>
-  <div id="stage"><canvas id="board"></canvas></div>
+  <div id="stage"><div id="boardwrap"><canvas id="board"></canvas></div></div>
 </div>
 
 <div class="pad" id="pad1">
@@ -179,7 +181,7 @@ let iosHapLabel=null;
   const l=document.createElement('label');
   l.setAttribute('aria-hidden','true');
   // rendered but off-screen (NOT display:none, which can suppress the haptic)
-  l.style.cssText='position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+  l.style.cssText='position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;';
   const i=document.createElement('input'); i.type='checkbox'; i.setAttribute('switch','');
   l.appendChild(i); document.body.appendChild(l); iosHapLabel=l;
 })();
@@ -273,7 +275,7 @@ function stepTrain(t){
   // cargo
   const idx=cargos.findIndex(c=>c.x===h.x && c.y===h.y);
   if(idx>=0){ t.grow+=1; t.score++; chime(); haptic(22); cargos.splice(idx,1);
-    if(t.score%10===0){ t.burstT=performance.now(); steamSound(); } }   // every +10 cargo → big steam puff
+    if(t.score%10===0){ t.burstT=performance.now(); steamSound(); whistle(); } }   // every +10 cargo → steam + toot
   refillCargo();
   document.getElementById('sc1').textContent=p1.score;
   document.getElementById('sc2').textContent=p2.score;
@@ -430,7 +432,7 @@ function startCountdown(){
     if(idx<steps.length){
       const go=steps[idx]==='GO!';
       countText=steps[idx]; countChangeT=performance.now();
-      if(go){ gateTarget=0; crossingDing(true); } else crossingDing(false);   // GO → raise the gate
+      if(go){ gateTarget=0; crossingDing(true); whistle(); } else crossingDing(false);   // GO → raise gate + departure toot
       idx++; countTimer=setTimeout(tick, go?650:720);
     } else { countText=''; counting=false; last=performance.now(); }
   })();
@@ -624,13 +626,13 @@ function bell(freq,t0,vol){
     o.connect(g); g.connect(d); o.start(t0); o.stop(t0+dec+0.05);
   });
 }
-function chime(){ if(!actx) return; const t=actx.currentTime; bell(700,t,0.5); bell(700,t+0.13,0.5); }
+function chime(){ if(!actx) return; const t=actx.currentTime; bell(700,t,0.425); bell(700,t+0.13,0.425); }
 // cute steam whistle "toot-toot" when a boost starts
 function whistle(){ if(!actx) return; const d=music.gain||actx.destination;
   const toot=(t,dur)=>[69,76,81].forEach((m,i)=>{            // A4 body + E5 + A5 bright = bold whistle
     const o=actx.createOscillator(), g=actx.createGain();
     o.type=i===0?'sawtooth':'triangle'; o.frequency.value=440*Math.pow(2,(m-69)/12);
-    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(i===0?0.20:0.14,t+0.035);
+    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(i===0?0.26:0.18,t+0.035);
     g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
     o.connect(g); g.connect(d); o.start(t); o.stop(t+dur+0.05);
   });
