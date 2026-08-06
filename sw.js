@@ -1,6 +1,6 @@
 // Minimal offline-first service worker for Train Snake.
 // Bump CACHE when you change any cached asset so clients pick it up.
-const CACHE = 'train-snake-v3';
+const CACHE = 'train-snake-v4';
 const ASSETS = [
   './',
   './index.html',

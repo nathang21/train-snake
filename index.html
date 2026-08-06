@@ -40,10 +40,9 @@
     background:linear-gradient(90deg,var(--p1),var(--gold),var(--p2)); -webkit-background-clip:text; background-clip:text; color:transparent;}
   /* stage centres the board in the space left after the bar + reserved pad zones */
   #stage{flex:1; width:100%; min-height:0; display:flex; align-items:center; justify-content:center;}
-  /* wrapper does the rounding/clipping (reliable on iOS, unlike border-radius on a redrawn <canvas>) */
-  #boardwrap{border-radius:16px; overflow:hidden; display:inline-block; line-height:0; background:#0f1d2b;
+  /* square board — no CSS corner clipping (iOS WebKit mis-clips a continuously-redrawn canvas) */
+  #board{display:block; background:#0f1d2b; touch-action:none;
     box-shadow:0 12px 40px rgba(0,0,0,.6), inset 0 0 0 4px rgba(255,255,255,.08);}
-  #board{display:block; background:#0f1d2b; touch-action:none;}
   /* touch pads */
   .pad{position:fixed; bottom:calc(18px + env(safe-area-inset-bottom)); width:186px; height:186px; display:none; touch-action:none; z-index:5;}
   #pad1{left:calc(16px + env(safe-area-inset-left));} #pad2{right:calc(16px + env(safe-area-inset-right));}
@@ -79,10 +78,10 @@
   .row.col{flex-direction:column; align-items:stretch; gap:8px;}
   .grp.wrap{flex-wrap:wrap;}
   .grp.wrap button{flex:1 1 calc(20% - 5px); min-width:0; padding:9px 4px;} /* 5 per row */
-  .grp button, #music{border:none; background:rgba(255,255,255,.10); color:#fff; font-size:15px; font-weight:700;
+  .grp button, .tog{border:none; background:rgba(255,255,255,.10); color:#fff; font-size:15px; font-weight:700;
     padding:9px 13px; border-radius:9px; cursor:pointer; line-height:1; min-height:42px;}
-  .grp button.on, #music.on{background:var(--gold); color:#14263a;}
-  #music{width:100%;}
+  .grp button.on, .tog.on{background:var(--gold); color:#14263a;}
+  .tog{min-width:66px;}
   #close,#restart{margin-top:16px; width:100%; border:none; border-radius:12px; padding:14px; font-size:17px; font-weight:900;
     color:#14263a; background:var(--gold); cursor:pointer;}
   /* colour swatches */
@@ -107,7 +106,7 @@
     <div id="scores"><span class="s1">P1 <span id="sc1">0</span></span><span class="s2">P2 <span id="sc2">0</span></span></div>
     <span class="bar-title">🚂 Train Snake</span>
   </div>
-  <div id="stage"><div id="boardwrap"><canvas id="board"></canvas></div></div>
+  <div id="stage"><canvas id="board"></canvas></div>
 </div>
 
 <div class="pad" id="pad1">
@@ -138,10 +137,11 @@
       </div></div>
     <div class="row col"><span>P1 train colour 🚂</span><div class="grp wrap" id="p1colors"></div></div>
     <div class="row col p2only"><span>P2 train colour 🚂</span><div class="grp wrap" id="p2colors"></div></div>
-    <div class="row"><button id="music">🎵 Music: Off</button></div>
+    <div class="row"><span>🔊 Sound FX</span><button id="sfx" class="tog">On</button></div>
+    <div class="row"><span>🎵 Music</span><button id="music" class="tog">On</button></div>
     <button id="close">▶ Play</button>
     <button id="resethi" class="mini">Reset best scores</button>
-    <div class="ver">build 2026-08-05 · 3</div>
+    <div class="ver">build 2026-08-05 · 4</div>
   </div>
 </div>
 
@@ -423,7 +423,7 @@ function loop(now){
 }
 // ---- Pre-round countdown: an animated crossing gate drawn on the board ----
 let countText='', countChangeT=0, gateProg=0, gateTarget=0, countTimer=null;
-function crossingDing(go){ if(!actx) return; const t=actx.currentTime;
+function crossingDing(go){ if(!actx||!sfxOn) return; const t=actx.currentTime;
   if(go){ bell(1046,t,0.5); bell(1046,t+0.13,0.5); }        // bright "go" chime
   else { bell(880,t,0.45); bell(660,t+0.14,0.45); }         // alternating crossing bell: ding-ding
 }
@@ -517,18 +517,20 @@ modal.addEventListener('click',e=>{ if(e.target===modal) closeSettings(); }); //
 function setMode(n){ mode=n; document.body.classList.toggle('one', n===1);
   document.getElementById('m1').classList.toggle('on', n===1);
   document.getElementById('m2').classList.toggle('on', n===2);
-  reset(true); fit(); }
+  reset(true); fit(); saveSettings(); }
 document.getElementById('m1').onclick=()=>setMode(1);
 document.getElementById('m2').onclick=()=>setMode(2);
 document.querySelectorAll('[data-tick]').forEach(b=>b.onclick=()=>{
   tick=+b.dataset.tick;
   document.querySelectorAll('[data-tick]').forEach(x=>x.classList.toggle('on',x===b));
+  saveSettings();
 });
 document.querySelectorAll('[data-cargo]').forEach(b=>b.onclick=()=>{
   cargoCount=+b.dataset.cargo;
   document.querySelectorAll('[data-cargo]').forEach(x=>x.classList.toggle('on',x===b));
   while(cargos.length>cargoCount) cargos.pop();   // trim if reduced
   refillCargo();                                  // add if increased
+  saveSettings();
 });
 
 // ---- Train colour picker (defaults 0=red / 5=blue match the original CSS vars) ----
@@ -542,6 +544,10 @@ const PALETTE=[
   {n:'Rainbow',rainbow:true,b:'linear-gradient(135deg,#ff3b30 0 17%,#ff9f0a 17% 34%,#ffd60a 34% 50%,#30d158 50% 67%,#0a84ff 67% 84%,#bf5af2 84% 100%)'},
 ];
 let colorIdx={'1':0,'2':5};          // selected palette index per player (persists across resets)
+let musicOn=true, sfxOn=true;        // audio settings (default on), persisted to localStorage
+const SDEF={mode:1, tick:180, cargo:1, p1c:0, p2c:5, music:true, sfx:true};
+function loadSettings(){ try{ return {...SDEF, ...JSON.parse(localStorage.getItem('trainsnake.settings')||'{}')}; }catch(e){ return {...SDEF}; } }
+function saveSettings(){ try{ localStorage.setItem('trainsnake.settings', JSON.stringify({mode,tick,cargo:cargoCount,p1c:colorIdx['1'],p2c:colorIdx['2'],music:musicOn,sfx:sfxOn})); }catch(e){} }
 function setColor(player,i){
   colorIdx[player]=i;
   const c=PALETTE[i], root=document.documentElement.style;
@@ -557,7 +563,7 @@ function buildSwatches(boxId, player, selIdx){
   PALETTE.forEach((c,i)=>{
     const b=document.createElement('button');
     b.className='sw'+(i===selIdx?' on':''); b.title=c.n; b.style.background=c.b;
-    b.onclick=()=>{ setColor(player,i); [...box.children].forEach(x=>x.classList.toggle('on',x===b)); };
+    b.onclick=()=>{ setColor(player,i); saveSettings(); [...box.children].forEach(x=>x.classList.toggle('on',x===b)); };
     box.appendChild(b);
   });
 }
@@ -628,9 +634,9 @@ function bell(freq,t0,vol){
     o.connect(g); g.connect(d); o.start(t0); o.stop(t0+dec+0.05);
   });
 }
-function chime(){ if(!actx) return; const t=actx.currentTime; bell(700,t,0.425); bell(700,t+0.13,0.425); }
+function chime(){ if(!actx||!sfxOn) return; const t=actx.currentTime; bell(700,t,0.425); bell(700,t+0.13,0.425); }
 // cute steam whistle "toot-toot" when a boost starts
-function whistle(){ if(!actx) return; const d=music.gain||actx.destination;
+function whistle(){ if(!actx||!sfxOn) return; const d=music.gain||actx.destination;
   const toot=(t,dur)=>[69,76,81].forEach((m,i)=>{            // A4 body + E5 + A5 bright = bold whistle
     const o=actx.createOscillator(), g=actx.createGain();
     o.type=i===0?'sawtooth':'triangle'; o.frequency.value=440*Math.pow(2,(m-69)/12);
@@ -641,7 +647,7 @@ function whistle(){ if(!actx) return; const d=music.gain||actx.destination;
   const t0=actx.currentTime; toot(t0,0.22); toot(t0+0.24,0.30);   // toot — toot (louder, smoother)
 }
 // big long locomotive steam chuff on each 10-cargo milestone: chuff-chuff-chuff-hisss
-function steamSound(){ if(!actx) return; const t0=actx.currentTime, d=music.gain||actx.destination;
+function steamSound(){ if(!actx||!sfxOn) return; const t0=actx.currentTime, d=music.gain||actx.destination;
   const chuff=(t,dur,f0,f1,vol)=>{
     const len=Math.floor(actx.sampleRate*dur), buf=actx.createBuffer(1,len,actx.sampleRate), dat=buf.getChannelData(0);
     for(let i=0;i<len;i++) dat[i]=Math.random()*2-1;
@@ -676,23 +682,37 @@ function schedule(){
     music.lead={i:0,t:endT}; music.bass={i:0,t:endT};
   }
 }
-function toggleMusic(){
-  ensureAudio();
-  music.on=!music.on;
-  const btn=document.getElementById('music');
-  btn.textContent='🎵 Music: '+(music.on?'On':'Off'); btn.classList.toggle('on',music.on);
-  if(music.on){ const t0=actx.currentTime+0.06; music.songIdx=0; music.lead={i:0,t:t0}; music.bass={i:0,t:t0};
-    music.timer=setInterval(schedule,25); }
-  else { clearInterval(music.timer); music.timer=null; }
-}
-document.getElementById('music').onclick=toggleMusic;
-// unlock the audio context on the first user gesture so the cargo bell rings even with music off
-function unlockAudio(){ ensureAudio(); ['keydown','pointerdown','touchstart'].forEach(ev=>window.removeEventListener(ev,unlockAudio)); }
+function startMusic(){ if(!actx||music.timer) return; const t0=actx.currentTime+0.06;
+  music.songIdx=0; music.lead={i:0,t:t0}; music.bass={i:0,t:t0}; music.timer=setInterval(schedule,25); }
+function stopMusic(){ if(music.timer){ clearInterval(music.timer); music.timer=null; } }
+function updateMusicBtn(){ const b=document.getElementById('music'); b.textContent=musicOn?'On':'Off'; b.classList.toggle('on',musicOn); }
+function updateSfxBtn(){ const b=document.getElementById('sfx'); b.textContent=sfxOn?'On':'Off'; b.classList.toggle('on',sfxOn); }
+function setMusic(on){ musicOn=on; updateMusicBtn(); saveSettings(); if(on){ ensureAudio(); startMusic(); } else stopMusic(); }
+function setSfx(on){ sfxOn=on; updateSfxBtn(); saveSettings(); }
+document.getElementById('music').onclick=()=>setMusic(!musicOn);
+document.getElementById('sfx').onclick=()=>setSfx(!sfxOn);
+// unlock the audio context on the first user gesture; auto-start music if enabled, so SFX also work
+function unlockAudio(){ ensureAudio(); if(musicOn) startMusic(); ['keydown','pointerdown','touchstart'].forEach(ev=>window.removeEventListener(ev,unlockAudio)); }
 ['keydown','pointerdown','touchstart'].forEach(ev=>window.addEventListener(ev,unlockAudio,{passive:true}));
 
 if('serviceWorker' in navigator){
   addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }
+
+// load persisted settings and sync the UI before the first round
+function applySettings(){
+  const s=loadSettings();
+  mode=s.mode; tick=s.tick; cargoCount=s.cargo; colorIdx={'1':s.p1c,'2':s.p2c}; musicOn=s.music; sfxOn=s.sfx;
+  document.body.classList.toggle('one', mode===1);
+  document.getElementById('m1').classList.toggle('on', mode===1);
+  document.getElementById('m2').classList.toggle('on', mode===2);
+  document.querySelectorAll('[data-tick]').forEach(x=>x.classList.toggle('on', +x.dataset.tick===tick));
+  document.querySelectorAll('[data-cargo]').forEach(x=>x.classList.toggle('on', +x.dataset.cargo===cargoCount));
+  buildSwatches('p1colors','1',colorIdx['1']); buildSwatches('p2colors','2',colorIdx['2']);
+  setColor('1',colorIdx['1']); setColor('2',colorIdx['2']);
+  updateMusicBtn(); updateSfxBtn();
+}
+applySettings();
 
 newGame();
 requestAnimationFrame(loop);
