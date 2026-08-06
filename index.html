@@ -168,7 +168,7 @@
     <div class="row"><span>🎵 Music</span><button id="music" class="tog">On</button></div>
     <button id="close">▶ Play</button>
     <button id="resethi" class="mini">Reset best scores</button>
-    <div class="ver">build 2026-08-06 · 6</div>
+    <div class="ver">build 2026-08-06 · 7</div>
   </div>
 </div>
 
@@ -432,7 +432,10 @@ function updateBoost(){
   [['1',p1],['2',p2]].forEach(([pl,t])=>{ if(!t) return;
     // boost only after the key's been held a beat, so a quick tap-to-turn doesn't trigger it
     const b = live && heldDir[pl]!=null && heldDir[pl]===t.dir && (performance.now()-heldSince[pl])>=140;
-    if(b && !t.wasBoost) whistle();      // bold toot-toot when a boost begins
+    if(b && !t.wasBoost){                // boost begins: quieter toot (0.6×), with a cooldown vs rapid re-holds
+      const now=performance.now();
+      if(now-(t.lastToot||0) > 1300){ whistle(0.6); t.lastToot=now; }
+    }
     t.boost=b; t.wasBoost=b;
   });
 }
@@ -643,15 +646,15 @@ function bell(freq,t0,vol){
 }
 function chime(){ if(!actx||!sfxOn) return; const t=actx.currentTime; bell(700,t,0.425); bell(700,t+0.13,0.425); }
 // cute steam whistle "toot-toot" when a boost starts
-function whistle(){ if(!actx||!sfxOn) return; const d=music.gain||actx.destination;
+function whistle(scale){ if(!actx||!sfxOn) return; const d=music.gain||actx.destination, s=scale||1;
   const toot=(t,dur)=>[69,76,81].forEach((m,i)=>{            // A4 body + E5 + A5 bright = bold whistle
     const o=actx.createOscillator(), g=actx.createGain();
     o.type=i===0?'sawtooth':'triangle'; o.frequency.value=440*Math.pow(2,(m-69)/12);
-    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(i===0?0.26:0.18,t+0.035);
+    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime((i===0?0.26:0.18)*s,t+0.035);
     g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
     o.connect(g); g.connect(d); o.start(t); o.stop(t+dur+0.05);
   });
-  const t0=actx.currentTime; toot(t0,0.22); toot(t0+0.24,0.30);   // toot — toot (louder, smoother)
+  const t0=actx.currentTime; toot(t0,0.22); toot(t0+0.24,0.30);   // toot — toot
 }
 // big long locomotive steam chuff: chuff-chuff-chuff-hisss (2× louder), optional start delay
 function steamSound(delay){ if(!actx||!sfxOn) return; const t0=actx.currentTime+(delay||0), d=music.gain||actx.destination;
