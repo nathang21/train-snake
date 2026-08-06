@@ -59,7 +59,8 @@
   #gl2{left:6.2%; animation:cblink .56s steps(1,end) infinite; animation-delay:.28s;}
   @keyframes cblink{0%,49.9%{background:#ff1744}50%,100%{background:#4a0000}}
   #count-num{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; line-height:1;
-    font-size:14vmin; font-weight:900; color:#fff; text-shadow:0 4px 14px #000, 0 0 8px #000;}
+    font-size:14vmin; font-weight:900; color:#fff; -webkit-text-stroke:6px #10151c; paint-order:stroke fill;
+    text-shadow:0 3px 5px rgba(0,0,0,.45);}   /* crisp outline, no blur smearing onto the gate */
   #count-num.pop{animation:cpop .42s ease-out;}
   @keyframes cpop{0%{transform:scale(.4);opacity:0}45%{transform:scale(1.15);opacity:1}100%{transform:scale(1);opacity:1}}
   /* touch pads */
@@ -167,7 +168,7 @@
     <div class="row"><span>🎵 Music</span><button id="music" class="tog">On</button></div>
     <button id="close">▶ Play</button>
     <button id="resethi" class="mini">Reset best scores</button>
-    <div class="ver">build 2026-08-06 · 5</div>
+    <div class="ver">build 2026-08-06 · 6</div>
   </div>
 </div>
 
@@ -304,7 +305,7 @@ function stepTrain(t){
   // cargo
   const idx=cargos.findIndex(c=>c.x===h.x && c.y===h.y);
   if(idx>=0){ t.grow+=1; t.score++; chime(); haptic(22); cargos.splice(idx,1);
-    if(t.score%10===0){ t.burstT=performance.now(); steamSound(); whistle(); } }   // every +10 cargo → steam + toot
+    if(t.score%10===0){ t.burstT=performance.now(); bigToot(); } }   // every +10 cargo → toot + steam (same as game start)
   refillCargo();
   document.getElementById('sc1').textContent=p1.score;
   document.getElementById('sc2').textContent=p2.score;
@@ -372,12 +373,12 @@ function drawTrain(t,pb,alpha){
         ctx.fillStyle=`rgba(225,225,225,${0.4*(1-life)})`;
         ctx.beginPath(); ctx.arc(cx, cy - S*0.2 - life*S*1.1, S*(0.09+life*0.2),0,7); ctx.fill();
       }
-      // milestone burst: a big billowing plume for ~1.2s after each +10 cargo
+      // milestone burst: a huge billowing plume (~3× size) for ~1.4s after each +10 cargo
       if(t.burstT){ const el=performance.now()-t.burstT;
-        if(el<1200){ const prog=el/1200;
-          for(let k=0;k<8;k++){ const life=(prog+k/8)%1, spread=(k-3.5)*S*0.14;
+        if(el<1400){ const prog=el/1400;
+          for(let k=0;k<10;k++){ const life=(prog+k/10)%1, spread=(k-4.5)*S*0.28;
             ctx.fillStyle=`rgba(255,255,255,${0.6*(1-life)})`;
-            ctx.beginPath(); ctx.arc(cx+spread*life, cy - S*0.25 - life*S*1.9, S*(0.12+life*0.38),0,7); ctx.fill();
+            ctx.beginPath(); ctx.arc(cx+spread*life, cy - S*0.3 - life*S*3.0, S*(0.34+life*1.05),0,7); ctx.fill();
           }
         }
       }
@@ -464,7 +465,7 @@ function startCountdown(){
       const go=steps[idx]==='GO!';
       countNum.textContent=steps[idx];
       countNum.classList.remove('pop'); void countNum.offsetWidth; countNum.classList.add('pop');
-      if(go){ countEl.classList.remove('closed'); crossingDing(true); whistle(); }  // gate raises + departure toot
+      if(go){ countEl.classList.remove('closed'); crossingDing(true); bigToot(); }  // gate raises + toot + steam
       else crossingDing(false);
       idx++; countTimer=setTimeout(tick, go?650:720);
     } else {
@@ -652,8 +653,8 @@ function whistle(){ if(!actx||!sfxOn) return; const d=music.gain||actx.destinati
   });
   const t0=actx.currentTime; toot(t0,0.22); toot(t0+0.24,0.30);   // toot — toot (louder, smoother)
 }
-// big long locomotive steam chuff on each 10-cargo milestone: chuff-chuff-chuff-hisss
-function steamSound(){ if(!actx||!sfxOn) return; const t0=actx.currentTime, d=music.gain||actx.destination;
+// big long locomotive steam chuff: chuff-chuff-chuff-hisss (2× louder), optional start delay
+function steamSound(delay){ if(!actx||!sfxOn) return; const t0=actx.currentTime+(delay||0), d=music.gain||actx.destination;
   const chuff=(t,dur,f0,f1,vol)=>{
     const len=Math.floor(actx.sampleRate*dur), buf=actx.createBuffer(1,len,actx.sampleRate), dat=buf.getChannelData(0);
     for(let i=0;i<len;i++) dat[i]=Math.random()*2-1;
@@ -663,11 +664,13 @@ function steamSound(){ if(!actx||!sfxOn) return; const t0=actx.currentTime, d=mu
     const g=actx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(vol,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
     src.connect(bp); bp.connect(g); g.connect(d); src.start(t); src.stop(t+dur+0.03);
   };
-  chuff(t0,      0.28, 700, 2000, 0.30);
-  chuff(t0+0.30, 0.26, 800, 2200, 0.27);
-  chuff(t0+0.56, 0.24, 900, 2400, 0.24);
-  chuff(t0+0.80, 0.70, 1200, 3200, 0.22);   // long trailing hiss
+  chuff(t0,      0.28, 700, 2000, 0.60);
+  chuff(t0+0.30, 0.26, 800, 2200, 0.54);
+  chuff(t0+0.56, 0.24, 900, 2400, 0.48);
+  chuff(t0+0.80, 0.70, 1200, 3200, 0.44);   // long trailing hiss
 }
+// milestone / game-start signature: the "toot-toot" leads, steam follows underneath (so the toot is heard)
+function bigToot(){ whistle(); steamSound(0.24); }
 function schedule(){
   const s=SONGS[music.songIdx], E=60/s.bpm/2, horizon=actx.currentTime+0.3;
   const lt=s.leadType||'square', bt=s.bassType||'triangle';
