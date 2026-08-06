@@ -40,9 +40,28 @@
     background:linear-gradient(90deg,var(--p1),var(--gold),var(--p2)); -webkit-background-clip:text; background-clip:text; color:transparent;}
   /* stage centres the board in the space left after the bar + reserved pad zones */
   #stage{flex:1; width:100%; min-height:0; display:flex; align-items:center; justify-content:center;}
+  #board-holder{position:relative; display:inline-block; line-height:0;}
   /* square board — no CSS corner clipping (iOS WebKit mis-clips a continuously-redrawn canvas) */
   #board{display:block; background:#0f1d2b; touch-action:none;
     box-shadow:0 12px 40px rgba(0,0,0,.6), inset 0 0 0 4px rgba(255,255,255,.08);}
+  /* countdown crossing gate — DOM/CSS (canvas animation ghosts on iOS) */
+  #count{position:absolute; inset:0; display:none; overflow:hidden; pointer-events:none; z-index:4;}
+  #count.show{display:block;}
+  #count-gate{position:absolute; left:5%; top:46.5%; width:90%; height:7%; transform-origin:left center;
+    transform:rotate(-90deg); transition:transform .5s cubic-bezier(.5,0,.35,1); box-sizing:border-box;
+    background:repeating-linear-gradient(90deg,#e53935 0 11.11%,#f5f5f5 11.11% 22.22%);
+    border:1px solid rgba(0,0,0,.45); border-radius:3px;}
+  #count.closed #count-gate{transform:rotate(0deg);}
+  #count-post{position:absolute; left:3.6%; top:50%; width:2.8%; height:46%; background:#3a3a3a;}
+  #count-post::after{content:''; position:absolute; left:-45%; bottom:0; width:190%; height:13%; background:#2a2a2a;}
+  .glight{position:absolute; top:56%; width:3.4%; aspect-ratio:1; border-radius:50%;}
+  #gl1{left:2%; animation:cblink .56s steps(1,end) infinite;}
+  #gl2{left:6.2%; animation:cblink .56s steps(1,end) infinite; animation-delay:.28s;}
+  @keyframes cblink{0%,49.9%{background:#ff1744}50%,100%{background:#4a0000}}
+  #count-num{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; line-height:1;
+    font-size:14vmin; font-weight:900; color:#fff; text-shadow:0 4px 14px #000, 0 0 8px #000;}
+  #count-num.pop{animation:cpop .42s ease-out;}
+  @keyframes cpop{0%{transform:scale(.4);opacity:0}45%{transform:scale(1.15);opacity:1}100%{transform:scale(1);opacity:1}}
   /* touch pads */
   .pad{position:fixed; bottom:calc(18px + env(safe-area-inset-bottom)); width:186px; height:186px; display:none; touch-action:none; z-index:5;}
   #pad1{left:calc(16px + env(safe-area-inset-left));} #pad2{right:calc(16px + env(safe-area-inset-right));}
@@ -106,7 +125,14 @@
     <div id="scores"><span class="s1">P1 <span id="sc1">0</span></span><span class="s2">P2 <span id="sc2">0</span></span></div>
     <span class="bar-title">🚂 Train Snake</span>
   </div>
-  <div id="stage"><canvas id="board"></canvas></div>
+  <div id="stage"><div id="board-holder"><canvas id="board"></canvas>
+    <div id="count">
+      <div id="count-post"></div>
+      <div class="glight" id="gl1"></div><div class="glight" id="gl2"></div>
+      <div id="count-gate"></div>
+      <div id="count-num"></div>
+    </div>
+  </div></div>
 </div>
 
 <div class="pad" id="pad1">
@@ -141,7 +167,7 @@
     <div class="row"><span>🎵 Music</span><button id="music" class="tog">On</button></div>
     <button id="close">▶ Play</button>
     <button id="resethi" class="mini">Reset best scores</button>
-    <div class="ver">build 2026-08-05 · 4</div>
+    <div class="ver">build 2026-08-06 · 5</div>
   </div>
 </div>
 
@@ -169,6 +195,7 @@ function fit(){
   const maxH=st.clientHeight-6;
   CELL=Math.max(10, Math.floor(Math.min(maxW/COLS, maxH/ROWS)));
   cv.width=COLS*CELL; cv.height=ROWS*CELL;
+  const cn=document.getElementById('count-num'); if(cn) cn.style.fontSize=Math.round(cv.height*0.26)+'px';  // board-relative
 }
 window.addEventListener('resize',fit);
 window.addEventListener('orientationchange',()=>setTimeout(fit,150));
@@ -395,7 +422,6 @@ function render(){
   }
   drawTrain(p1, p1.prev||p1.body, Math.min(1, p1.acc/(p1.int||tick)));
   if(mode===2) drawTrain(p2, p2.prev||p2.body, Math.min(1, p2.acc/(p2.int||tick)));
-  drawCountdown(now);
 }
 
 let paused=false, dead=false;
@@ -421,51 +447,31 @@ function loop(now){
   render();
   requestAnimationFrame(loop);
 }
-// ---- Pre-round countdown: an animated crossing gate drawn on the board ----
-let countText='', countChangeT=0, gateProg=0, gateTarget=0, countTimer=null;
+// ---- Pre-round countdown: a DOM/CSS crossing gate overlay (no canvas ghosting on iOS) ----
+let countTimer=null;
+const countEl=document.getElementById('count'), countNum=document.getElementById('count-num');
 function crossingDing(go){ if(!actx||!sfxOn) return; const t=actx.currentTime;
   if(go){ bell(1046,t,0.5); bell(1046,t+0.13,0.5); }        // bright "go" chime
   else { bell(880,t,0.45); bell(660,t+0.14,0.45); }         // alternating crossing bell: ding-ding
 }
 function startCountdown(){
-  counting=true; clearTimeout(countTimer); gateTarget=1;    // lower the gate
+  counting=true; clearTimeout(countTimer);
+  countEl.classList.add('show');
+  requestAnimationFrame(()=>countEl.classList.add('closed'));   // gate lowers (CSS transition)
   const steps=['3','2','1','GO!']; let idx=0;
   (function tick(){
     if(idx<steps.length){
       const go=steps[idx]==='GO!';
-      countText=steps[idx]; countChangeT=performance.now();
-      if(go){ gateTarget=0; crossingDing(true); whistle(); } else crossingDing(false);   // GO → raise gate + departure toot
+      countNum.textContent=steps[idx];
+      countNum.classList.remove('pop'); void countNum.offsetWidth; countNum.classList.add('pop');
+      if(go){ countEl.classList.remove('closed'); crossingDing(true); whistle(); }  // gate raises + departure toot
+      else crossingDing(false);
       idx++; countTimer=setTimeout(tick, go?650:720);
-    } else { countText=''; counting=false; last=performance.now(); }
+    } else {
+      countEl.classList.remove('show'); countNum.textContent='';
+      counting=false; last=performance.now();
+    }
   })();
-}
-// draw the crossing gate + count number onto the canvas (sized to the board, so correct on any screen)
-function drawCountdown(now){
-  gateProg += (gateTarget-gateProg)*0.16;                    // ease toward open/closed
-  if(gateProg<0.01 && !counting && !countText){ gateProg=0; return; }
-  const W=cv.width, H=cv.height, px=W*0.05, py=H*0.5, L=W*0.9, TH=Math.max(12,H*0.07);
-  // post + base
-  ctx.fillStyle='#3a3a3a'; ctx.fillRect(px-TH*0.45, py-TH*0.3, TH*0.9, H*0.5);
-  ctx.fillStyle='#2a2a2a'; ctx.fillRect(px-TH*0.9, py+H*0.5-TH*0.5, TH*1.8, TH*0.5);
-  // blinking crossing lights on the post
-  const blink=Math.floor(now/280)%2;
-  ctx.fillStyle=blink?'#ff1744':'#4a0000'; ctx.beginPath(); ctx.arc(px-TH*0.35, py+TH*0.9, TH*0.26,0,7); ctx.fill();
-  ctx.fillStyle=blink?'#4a0000':'#ff1744'; ctx.beginPath(); ctx.arc(px+TH*0.35, py+TH*0.9, TH*0.26,0,7); ctx.fill();
-  // boom arm: rotates from up (open) to horizontal (closed)
-  ctx.save(); ctx.translate(px,py); ctx.rotate((gateProg-1)*Math.PI/2);
-  const segs=9, sl=L/segs;
-  for(let i=0;i<segs;i++){ ctx.fillStyle=i%2?'#f5f5f5':'#e53935'; ctx.fillRect(i*sl,-TH/2, sl+1, TH); }
-  ctx.strokeStyle='rgba(0,0,0,.45)'; ctx.lineWidth=2; ctx.strokeRect(0,-TH/2,L,TH);
-  ctx.restore();
-  // count number, with a little pop
-  if(countText){
-    const pop=Math.min(1,(now-countChangeT)/160), sc=1.3-0.3*pop;
-    ctx.save(); ctx.translate(W/2,H/2); ctx.scale(sc,sc);
-    ctx.font=`900 ${Math.floor(H*0.26)}px system-ui,-apple-system,sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.lineWidth=Math.max(5,W*0.02); ctx.strokeStyle='rgba(0,0,0,.65)'; ctx.strokeText(countText,0,0);
-    ctx.fillStyle='#fff'; ctx.fillText(countText,0,0);
-    ctx.restore();
-  }
 }
 function newGame(){ reset(true); startCountdown(); }
 // ---- Game over: freeze, show the score, wait for Restart ----
